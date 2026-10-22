@@ -1,0 +1,147 @@
+{
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c775b1e8-8a66-4606-88f0-593a50f9975f",
+      "name": "When clicking ‘Execute workflow’",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://lumi-service-qa-d8c0fjeubtg0ejg2.centralindia-01.azurewebsites.net/orders/unrouted-orders",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"warehouseId\":1,\"orderTypes\":[1],\"uniqueOrderId\":null,\"page\":1,\"deliveryDate\":\"{{ $now.setZone('Asia/Calcutta').toFormat('yyyy-MM-dd') }}\",\"limit\":10,\"orderStatuses\":[0,1,2,6]}",
+        "options": {}
+      },
+      "id": "f8fe6178-fb23-4e5c-b870-be65cd649b9a",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "3nkcXN6jEHZnGiFU",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://lumi-service-qa-d8c0fjeubtg0ejg2.centralindia-01.azurewebsites.net/vehicles/unrouted-vehicles",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"warehouseId\":1,\"vehicleName\":\"\",\"page\":1,\"limit\":5}",
+        "options": {}
+      },
+      "id": "f583a028-9eb5-423c-9cb2-340b6faefe4b",
+      "name": "HTTP Request1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        144,
+        144
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "3nkcXN6jEHZnGiFU",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "27f3c71f-964c-4f5f-99c0-31fd1df61dce",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        224,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Select the first 10 orders and check them against the first vehicle\nconst ordersRes = $('HTTP Request').first().json || {};\nconst vehiclesRes = $('HTTP Request1').first().json || {};\nconst orders = Array.isArray(ordersRes.data) ? ordersRes.data : [];\nconst vehicles = Array.isArray(vehiclesRes.data) ? vehiclesRes.data : [];\n\nconst vehicle = vehicles[0] || null;\nconst selected = orders.slice(0, 10);\nconst reasons = [];\n\nif (selected.length === 0) reasons.push('No orders found');\nif (!vehicle) reasons.push('No vehicles found');\n\nconst totalWeight = Math.round(selected.reduce((sum, o) => sum + (Number(o.weight) || 0), 0) * 100) / 100;\nconst maxTasks = vehicle ? Number(vehicle.maxTasks) || 0 : 0;\nconst weightCapacity = vehicle ? Number(vehicle.weightCapacity) || 0 : 0;\n\nif (vehicle) {\n  if (selected.length > maxTasks) {\n    reasons.push('Selected orders (' + selected.length + ') exceed vehicle maxTasks (' + maxTasks + ')');\n  }\n  if (totalWeight > weightCapacity) {\n    reasons.push('Total weight (' + totalWeight + ') exceeds vehicle weightCapacity (' + weightCapacity + ')');\n  }\n  const vehicleSkills = Array.isArray(vehicle.skills) ? vehicle.skills : [];\n  for (const o of selected) {\n    const orderSkills = Array.isArray(o.skills) ? o.skills : [];\n    const missing = orderSkills.filter(s => !vehicleSkills.includes(s));\n    if (missing.length > 0) {\n      reasons.push('Order ' + o.uniqueOrderId + ' needs skills not on vehicle: ' + missing.join(', '));\n    }\n  }\n}\n\nconst eligible = reasons.length === 0;\n\nreturn [{\n  json: {\n    eligible,\n    status: eligible ? 'PASS' : 'FAIL',\n    summary: {\n      selectedOrders: selected.length,\n      totalWeight,\n      maxTasks,\n      weightCapacity\n    },\n    reasons,\n    vehicle: vehicle ? { id: vehicle.id, vehicleName: vehicle.vehicleName, vehicleType: vehicle.vehicleType } : null,\n    orderIds: selected.map(o => o.id)\n  }\n}];"
+      },
+      "id": "18396a63-8c50-467d-80f3-ccf62ff60568",
+      "name": "Code in JavaScript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        144
+      ],
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "71e4ce6c24779f92bdc9b76e63fd81cef4176d641de0f19ff9f5b7c9f1aa0bff"
+  }
+}
